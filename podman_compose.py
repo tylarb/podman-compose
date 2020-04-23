@@ -251,6 +251,22 @@ def adj_hosts(services, cnt, dst="127.0.0.1"):
             extra_hosts.append("{}:{}".format(alias, dst))
     cnt["extra_hosts"] = extra_hosts
 
+def adj_hosts_multi(services, cnt, given_containers):
+    """
+    adjust container cnt in-place to add hosts pointing to dst for services
+    """
+    common_extra_hosts = []
+    for cnt0 in given_containers:
+        common_extra_hosts.append("{}:{}".format(cnt0['hostname'], cnt0['ip']))
+    extra_hosts = list(cnt.get("extra_hosts", []))
+    extra_hosts.extend(common_extra_hosts)
+    # link aliases
+    for link in cnt.get("links", []):
+        a = link.strip().split(':', 1)
+        if len(a) == 2:
+            alias = a[1].strip()
+            extra_hosts.append("{}:{}".format(alias, dst))
+    cnt["extra_hosts"] = extra_hosts
 
 def move_list(dst, containers, key):
     """
@@ -329,18 +345,18 @@ def tr_cntnet(project_name, services, given_containers):
         image="k8s.gcr.io/pause:3.1",
     )
     for cnt0 in given_containers:
-        cnt = dict(cnt0, network_mode="container:"+infra_name)
-        deps = cnt.get("depends_on", None) or []
+        cnt = dict(cnt0, network_mode=infra_name)
+        deps = cnt.get("depends_on") or []
         deps.append(infra_name)
         cnt["depends_on"] = deps
         # adjust hosts to point to localhost, TODO: adjust host env
-        adj_hosts(services, cnt, '127.0.0.1')
-        if "hostname" in cnt:
-            del cnt["hostname"]
+        adj_hosts_multi(services, cnt, given_containers)
+    #    if "hostname" in cnt:
+    #        del cnt["hostname"]
         containers.append(cnt)
-    move_port_fw(infra, containers)
-    move_extra_hosts(infra, containers)
-    containers.insert(0, infra)
+    #move_port_fw(infra, containers)
+    #move_extra_hosts(infra, containers)
+    #containers.insert(0, infra)
     return [], containers
 
 
@@ -524,6 +540,10 @@ def container_to_args(compose, cnt, detached=True, podman_command='run'):
     net = cnt.get("network_mode", None)
     if net:
         podman_args.extend(['--network', net])
+    if cnt.get('ip', []):
+        podman_args.extend(['--ip', cnt['ip']])
+    else:
+        podman_args.extend(['--ip', '127.0.0.1'])
     env = norm_as_list(cnt.get('environment', {}))
     for c in cnt.get('cap_add', []):
         podman_args.extend(['--cap-add', c])
